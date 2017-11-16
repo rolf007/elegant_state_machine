@@ -1,32 +1,28 @@
 #include <iostream>
 #include <map>
 
-using namespace std;;
-
-template<typename E>
-class StateHolderBase { public: virtual ~StateHolderBase() {} virtual StateHolderBase<E>* inject2(E ev) = 0; };
-
-template<typename EE>
-struct StateNewerBase { virtual StateHolderBase<EE>* newIt(StateHolderBase<EE>*, EE)=0;};
-
-
+using namespace std;
 
 template<typename E>
 class StateMachine {
 public:
-	template<typename S>
-	struct MapHolder { static map<E, StateNewerBase<E>*> m3; };
+	class StateHolderBase { public: virtual ~StateHolderBase() {} virtual StateHolderBase* inject2(E ev) = 0; };
+
+	struct StateNewerBase { virtual StateHolderBase* newIt(StateHolderBase*, E)=0;};
 
 	template<typename S>
-	class StateHolder : public StateHolderBase<E> {
+	struct MapHolder { static map<E, StateNewerBase*> m3; };
+
+	template<typename S>
+	class StateHolder : public StateHolderBase {
 	public:
 		StateHolder(S* state) : state(state) {}
-		virtual StateHolderBase<E>* inject2(E ev)
+		virtual StateHolderBase* inject2(E ev)
 		{
-			typename map<E, StateNewerBase<E>*>::const_iterator ittr = MapHolder<S>::m3.find(ev);
+			typename map<E, StateNewerBase*>::const_iterator ittr = MapHolder<S>::m3.find(ev);
 			if (ittr == MapHolder<S>::m3.end())
 				return this;
-			StateHolderBase<E>* newStateHolder = ittr->second->newIt(this, ev);
+			StateHolderBase* newStateHolder = ittr->second->newIt(this, ev);
 			delete this;
 			return newStateHolder;
 		}
@@ -35,8 +31,8 @@ public:
 
 
 	template<typename FU>
-	struct StateNewer : public StateNewerBase<E> {
-		StateHolderBase<E>* newIt(StateHolderBase<E>* from, E ev)
+	struct StateNewer : public StateNewerBase {
+		StateHolderBase* newIt(StateHolderBase* from, E ev)
 		{
 			StateHolder<typename FU::FROM>* oldStateHolder = dynamic_cast<StateHolder<typename FU::FROM>*>(from);
 			return new StateHolder<typename FU::TO>((*FU::tr)(oldStateHolder->state, ev));
@@ -56,17 +52,28 @@ public:
 	{
 		MapHolder<typename FU::FROM>::m3[ev] = new StateNewer<FU>;
 	}
-	StateHolderBase<E>* stateHolder_;
+	StateHolderBase* stateHolder_;
 
 	template<typename F, typename T>
-	struct Transit {
+	struct DCTransition {
 		using FROM = F;
 		using TO = T;
 		static TO* tr(FROM* from, E ev)
 		{
-			int v = from->v_+1;
 			delete from;
-			TO* to = new TO(v);
+			TO* to = new TO();
+			return to;
+		}
+	};
+
+	template<typename F, typename T>
+	struct CDTransition {
+		using FROM = F;
+		using TO = T;
+		static TO* tr(FROM* from, E ev)
+		{
+			TO* to = new TO();
+			delete from;
 			return to;
 		}
 	};
@@ -74,27 +81,40 @@ public:
 
 template<typename E>
 template<typename S>
-map<E, StateNewerBase<E>*> StateMachine<E>::MapHolder<S>::m3;
+map<E, typename StateMachine<E>::StateNewerBase*> StateMachine<E>::MapHolder<S>::m3;
 
 
 
-
-class StateA { public: StateA(int v) : v_(v) { cout << "StateA ctor: " << v_ << endl; } ~StateA() { cout << "StateA dtor: " << v_ << endl;} int v_;};
-class StateB { public: StateB(int v) : v_(v) { cout << "StateB ctor: " << v_ << endl; } ~StateB() { cout << "StateB dtor: " << v_ << endl;} int v_;};
-class StateC { public: StateC(int v) : v_(v) { cout << "StateC ctor: " << v_ << endl; } ~StateC() { cout << "StateC dtor: " << v_ << endl;} int v_;};
 enum class Events { Event0, Event1, Event2 };
+
+template<typename F, typename T>
+struct CustomTransition {
+	using FROM = F;
+	using TO = T;
+	static TO* tr(FROM* from, Events ev)
+	{
+		int v = from->v_+1;
+		delete from;
+		TO* to = new TO(v);
+		return to;
+	}
+};
+
+class StateA { public: StateA(int v=0) : v_(v) { cout << "StateA ctor: " << v_ << endl; } ~StateA() { cout << "StateA dtor: " << v_ << endl;} int v_;};
+class StateB { public: StateB(int v=0) : v_(v) { cout << "StateB ctor: " << v_ << endl; } ~StateB() { cout << "StateB dtor: " << v_ << endl;} int v_;};
+class StateC { public: StateC(int v=0) : v_(v) { cout << "StateC ctor: " << v_ << endl; } ~StateC() { cout << "StateC dtor: " << v_ << endl;} int v_;};
 
 
 class MyStateMachine : public StateMachine<Events> {
 public:
 	MyStateMachine() : StateMachine(new StateA(7))
 	{
-		addEvent<Transit<StateA, StateB>>(Events::Event0);
-		addEvent<Transit<StateA, StateC>>(Events::Event1);
-		addEvent<Transit<StateB, StateC>>(Events::Event0);
-		addEvent<Transit<StateB, StateA>>(Events::Event1);
-		addEvent<Transit<StateC, StateA>>(Events::Event0);
-		addEvent<Transit<StateC, StateB>>(Events::Event1);
+		addEvent<DCTransition<StateA, StateB>>(Events::Event0);
+		addEvent<DCTransition<StateA, StateC>>(Events::Event1);
+		addEvent<CDTransition<StateB, StateC>>(Events::Event0);
+		addEvent<DCTransition<StateB, StateA>>(Events::Event1);
+		addEvent<DCTransition<StateC, StateA>>(Events::Event0);
+		addEvent<CustomTransition<StateC, StateB>>(Events::Event1);
 	}
 };
 
@@ -105,6 +125,7 @@ int main()
 	myStateMachine.inject(Events::Event0);
 	myStateMachine.inject(Events::Event0);
 	myStateMachine.inject(Events::Event0);
+	myStateMachine.inject(Events::Event2);
 	myStateMachine.inject(Events::Event1);
 	myStateMachine.inject(Events::Event1);
 	myStateMachine.inject(Events::Event1);
