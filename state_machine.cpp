@@ -1,60 +1,64 @@
 #include <iostream>
 #include <map>
+#include <typeinfo>
+#include <memory>
 
 using namespace std;
 
 template<typename E>
 class StateMachine {
+	struct TransitionBase;
+
+	using Transitions = map<pair<size_t, E>, unique_ptr<TransitionBase>>;
+
+	class StateHolderBase { public: virtual StateHolderBase* inject2(E ev, const Transitions& transitions) = 0; virtual void end() = 0;};
+
+	struct TransitionBase { virtual StateHolderBase* newIt(StateHolderBase*, E) = 0;};
 public:
-	class StateHolderBase { public: virtual ~StateHolderBase() {} virtual StateHolderBase* inject2(E ev) = 0; };
-
-	struct StateNewerBase { virtual StateHolderBase* newIt(StateHolderBase*, E)=0;};
-
-	template<typename S>
-	struct MapHolder { static map<E, StateNewerBase*> m3; };
 
 	template<typename S>
 	class StateHolder : public StateHolderBase {
+		S* state_;
 	public:
-		StateHolder(S* state) : state(state) {}
-		virtual StateHolderBase* inject2(E ev)
+		StateHolder(S* state) : state_(state) {}
+		StateHolderBase* inject2(E ev, const Transitions& transitions) override
 		{
-			typename map<E, StateNewerBase*>::const_iterator ittr = MapHolder<S>::m3.find(ev);
-			if (ittr == MapHolder<S>::m3.end())
-				return this;
-			StateHolderBase* newStateHolder = ittr->second->newIt(this, ev);
-			delete this;
-			return newStateHolder;
+			typename Transitions::const_iterator ittr2 = transitions.find(make_pair(typeid(S).hash_code(), ev));
+			if (ittr2 == transitions.end())
+				return nullptr;
+			return ittr2->second->newIt(this, ev);
 		}
-		S* state;
+		void end() override { delete state_; }
+		StateHolderBase* handleEvent(E ev, StateHolderBase*(*func)(S*, E))
+		{
+			return (*func)(state_, ev);
+		}
 	};
-
+private:
 	template<typename FROM>
-	struct StateNewer : public StateNewerBase {
-		StateNewer(StateHolderBase*(*func)(FROM*, E)) : func_(func) {
-		}
-		StateHolderBase* newIt(StateHolderBase* from, E ev)
+	struct Transition : public TransitionBase {
+		Transition(StateHolderBase*(*func)(FROM*, E)) : func_(func) {}
+		StateHolderBase* newIt(StateHolderBase* from, E ev) override
 		{
-			StateHolder<FROM>* oldStateHolder = dynamic_cast<StateHolder<FROM>*>(from);
-			return (*func_)(oldStateHolder->state, ev);
+			return dynamic_cast<StateHolder<FROM>*>(from)->handleEvent(ev, func_);
 		};
 		StateHolderBase*(*func_)(FROM*, E);
 	};
-
+public:
 	template<typename S>
-	StateMachine(S* initState) : stateHolder_(new StateHolder<S>(initState)) {}
-	~StateMachine() { }
+	StateMachine(S* initState) : stateHolder_(make_unique<StateHolder<S>>(initState)) {}
+	~StateMachine() { stateHolder_->end(); }
 
 	void inject(E ev)
 	{
-		stateHolder_ = stateHolder_->inject2(ev);
+		if (StateHolderBase* newState = stateHolder_->inject2(ev, transitions_))
+			stateHolder_.reset(newState);
 	}
 	template<typename FROM>
 	void addEvent(E ev, StateHolderBase*(*func)(FROM*, E))
 	{
-		MapHolder<FROM>::m3[ev] = new StateNewer<FROM>(func);
+		transitions_[make_pair(typeid(FROM).hash_code(), ev)] = make_unique<Transition<FROM>>(func);
 	}
-	StateHolderBase* stateHolder_;
 
 	template<typename FROM, typename TO>
 	static StateHolderBase* dcTransition(FROM* from, E ev)
@@ -71,11 +75,10 @@ public:
 		delete from;
 		return new StateHolder<TO>(to);
 	}
+private:
+	unique_ptr<StateHolderBase> stateHolder_;
+	Transitions transitions_;
 };
-
-template<typename E>
-template<typename S>
-map<E, typename StateMachine<E>::StateNewerBase*> StateMachine<E>::MapHolder<S>::m3;
 
 enum class Events { Event0, Event1, Event2 };
 
