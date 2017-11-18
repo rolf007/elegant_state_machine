@@ -29,14 +29,16 @@ public:
 		S* state;
 	};
 
-
-	template<typename FU>
+	template<typename FROM>
 	struct StateNewer : public StateNewerBase {
+		StateNewer(StateHolderBase*(*func)(FROM*, E)) : func_(func) {
+		}
 		StateHolderBase* newIt(StateHolderBase* from, E ev)
 		{
-			StateHolder<typename FU::FROM>* oldStateHolder = dynamic_cast<StateHolder<typename FU::FROM>*>(from);
-			return new StateHolder<typename FU::TO>((*FU::tr)(oldStateHolder->state, ev));
+			StateHolder<FROM>* oldStateHolder = dynamic_cast<StateHolder<FROM>*>(from);
+			return (*func_)(oldStateHolder->state, ev);
 		};
+		StateHolderBase*(*func_)(FROM*, E);
 	};
 
 	template<typename S>
@@ -47,58 +49,36 @@ public:
 	{
 		stateHolder_ = stateHolder_->inject2(ev);
 	}
-	template<typename FU>
-	void addEvent(E ev)
+	template<typename FROM>
+	void addEvent(E ev, StateHolderBase*(*func)(FROM*, E))
 	{
-		MapHolder<typename FU::FROM>::m3[ev] = new StateNewer<FU>;
+		MapHolder<FROM>::m3[ev] = new StateNewer<FROM>(func);
 	}
 	StateHolderBase* stateHolder_;
 
-	template<typename F, typename T>
-	struct DCTransition {
-		using FROM = F;
-		using TO = T;
-		static TO* tr(FROM* from, E ev)
-		{
-			delete from;
-			TO* to = new TO();
-			return to;
-		}
-	};
+	template<typename FROM, typename TO>
+	static StateHolderBase* dcTransition(FROM* from, E ev)
+	{
+		delete from;
+		TO* to = new TO();
+		return new StateHolder<TO>(to);
+	}
 
-	template<typename F, typename T>
-	struct CDTransition {
-		using FROM = F;
-		using TO = T;
-		static TO* tr(FROM* from, E ev)
-		{
-			TO* to = new TO();
-			delete from;
-			return to;
-		}
-	};
+	template<typename FROM, typename TO>
+	static StateHolderBase* cdTransition(FROM* from, E ev)
+	{
+		TO* to = new TO();
+		delete from;
+		return new StateHolder<TO>(to);
+	}
 };
 
 template<typename E>
 template<typename S>
 map<E, typename StateMachine<E>::StateNewerBase*> StateMachine<E>::MapHolder<S>::m3;
 
-
-
 enum class Events { Event0, Event1, Event2 };
 
-template<typename F, typename T>
-struct CustomTransition {
-	using FROM = F;
-	using TO = T;
-	static TO* tr(FROM* from, Events ev)
-	{
-		int v = from->v_+1;
-		delete from;
-		TO* to = new TO(v);
-		return to;
-	}
-};
 
 class StateA { public: StateA(int v=0) : v_(v) { cout << "StateA ctor: " << v_ << endl; } ~StateA() { cout << "StateA dtor: " << v_ << endl;} int v_;};
 class StateB { public: StateB(int v=0) : v_(v) { cout << "StateB ctor: " << v_ << endl; } ~StateB() { cout << "StateB dtor: " << v_ << endl;} int v_;};
@@ -106,15 +86,23 @@ class StateC { public: StateC(int v=0) : v_(v) { cout << "StateC ctor: " << v_ <
 
 
 class MyStateMachine : public StateMachine<Events> {
+	template<typename FROM, typename TO>
+	static StateHolderBase* customTransition(FROM* from, Events ev)
+	{
+		int v = from->v_+1;
+		delete from;
+		TO* to = new TO(v);
+		return new StateHolder<TO>(to);
+	}
 public:
 	MyStateMachine() : StateMachine(new StateA(7))
 	{
-		addEvent<DCTransition<StateA, StateB>>(Events::Event0);
-		addEvent<DCTransition<StateA, StateC>>(Events::Event1);
-		addEvent<CDTransition<StateB, StateC>>(Events::Event0);
-		addEvent<DCTransition<StateB, StateA>>(Events::Event1);
-		addEvent<DCTransition<StateC, StateA>>(Events::Event0);
-		addEvent<CustomTransition<StateC, StateB>>(Events::Event1);
+		addEvent(Events::Event0, dcTransition<StateA, StateB>);
+		addEvent(Events::Event1, dcTransition<StateA, StateC>);
+		addEvent(Events::Event0, cdTransition<StateB, StateC>);
+		addEvent(Events::Event1, dcTransition<StateB, StateA>);
+		addEvent(Events::Event0, customTransition<StateC, StateA>);
+		addEvent(Events::Event1, dcTransition<StateC, StateB>);
 	}
 };
 
