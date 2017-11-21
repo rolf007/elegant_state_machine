@@ -1,45 +1,75 @@
 #include "state_machine.h"
 #include <iostream>
+#include <ostream>
 #include <gtest/gtest.h>
+
+using namespace std;
 
 enum class Events { Event0, Event1, Event2 };
 
 
-class StateA { public: StateA(int v=0) : v_(v) { cout << "StateA ctor: " << v_ << endl; } ~StateA() { cout << "StateA dtor: " << v_ << endl;} int v_;};
-class StateB { public: StateB(int v=0) : v_(v) { cout << "StateB ctor: " << v_ << endl; } ~StateB() { cout << "StateB dtor: " << v_ << endl;} int v_;};
-class StateC { public: StateC(int v=0) : v_(v) { cout << "StateC ctor: " << v_ << endl; } ~StateC() { cout << "StateC dtor: " << v_ << endl;} int v_;};
+class StateA { public: StateA(ostringstream& oss) : oss_(oss) { oss_ << "StateA ctor. "; } ~StateA() { oss_ << "StateA dtor. "; } ostringstream& oss_; };
+class StateB { public: StateB(ostringstream& oss) : oss_(oss) { oss_ << "StateB ctor. "; } ~StateB() { oss_ << "StateB dtor. "; } ostringstream& oss_; };
+class StateC { public: StateC(ostringstream& oss) : oss_(oss) { oss_ << "StateC ctor. "; } ~StateC() { oss_ << "StateC dtor. "; } ostringstream& oss_; };
 
 
 class MyStateMachine : public StateMachine<Events> {
 	template<typename FROM, typename TO>
-	static StateHolderBase* customTransition(FROM* from, Events ev)
+	static StateHolderBase* dcTransition(FROM* from, Events ev)
 	{
-		int v = from->v_+1;
+		ostringstream& oss = from->oss_;
 		delete from;
-		TO* to = new TO(v);
+		return new StateHolder<TO>(new TO(oss));
+	}
+
+	template<typename FROM, typename TO>
+	static StateHolderBase* cdTransition(FROM* from, Events ev)
+	{
+		TO* to = new TO(from->oss_);
+		delete from;
 		return new StateHolder<TO>(to);
 	}
+
 public:
-	MyStateMachine() : StateMachine(new StateA(7))
+	MyStateMachine(ostringstream& oss) : StateMachine(new StateA(oss))
 	{
-		addEvent(Events::Event0, dcTransition<StateA, StateB>);
-		addEvent(Events::Event1, dcTransition<StateA, StateC>);
-		addEvent(Events::Event0, cdTransition<StateB, StateC>);
-		addEvent(Events::Event1, dcTransition<StateB, StateA>);
-		addEvent(Events::Event0, customTransition<StateC, StateA>);
-		addEvent(Events::Event1, dcTransition<StateC, StateB>);
+		addEvent<StateA>(Events::Event0, dcTransition<StateA, StateB>);
+		addEvent<StateA>(Events::Event1, dcTransition<StateA, StateC>);
+		addEvent<StateB>(Events::Event0, cdTransition<StateB, StateC>);
+		addEvent<StateB>(Events::Event1, dcTransition<StateB, StateA>);
+		addEvent<StateC>(Events::Event0, dcTransition<StateC, StateA>);
+		addEvent<StateC>(Events::Event1, dcTransition<StateC, StateB>);
 	}
 };
 
-TEST(SalutationTest, Static)
+string getLog(ostringstream& oss)
 {
-	MyStateMachine myStateMachine;
-	myStateMachine.inject(Events::Event0);
-	myStateMachine.inject(Events::Event0);
-	myStateMachine.inject(Events::Event0);
-	myStateMachine.inject(Events::Event2);
-	myStateMachine.inject(Events::Event1);
-	myStateMachine.inject(Events::Event1);
-	myStateMachine.inject(Events::Event1);
-	EXPECT_EQ(8, 7);
+	string ret = oss.str();
+	oss.str("");
+	oss.clear();
+	return ret;
+}
+
+TEST(SimpleExample, basic)
+{
+	ostringstream oss;
+	{
+		MyStateMachine myStateMachine(oss);
+		EXPECT_EQ("StateA ctor. ", getLog(oss));
+		EXPECT_TRUE(myStateMachine.inject(Events::Event0));
+		EXPECT_EQ("StateA dtor. StateB ctor. ", getLog(oss));
+		EXPECT_TRUE(myStateMachine.inject(Events::Event0));
+		EXPECT_EQ("StateC ctor. StateB dtor. ", getLog(oss));
+		EXPECT_TRUE(myStateMachine.inject(Events::Event0));
+		EXPECT_EQ("StateC dtor. StateA ctor. ", getLog(oss));
+		EXPECT_FALSE(myStateMachine.inject(Events::Event2));
+		EXPECT_EQ("", getLog(oss));
+		EXPECT_TRUE(myStateMachine.inject(Events::Event1));
+		EXPECT_EQ("StateA dtor. StateC ctor. ", getLog(oss));
+		EXPECT_TRUE(myStateMachine.inject(Events::Event1));
+		EXPECT_EQ("StateC dtor. StateB ctor. ", getLog(oss));
+		EXPECT_TRUE(myStateMachine.inject(Events::Event1));
+		EXPECT_EQ("StateB dtor. StateA ctor. ", getLog(oss));
+	}
+	EXPECT_EQ("StateA dtor. ", getLog(oss));
 }
