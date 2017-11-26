@@ -6,15 +6,19 @@
 using namespace std;
 
 /*
-/----\       /----------------------------------\      /----\
-|A   |       |B                                 |      |C   |
-|    +--E0-->+  /----\      /----\      /----\  +------+    +
-|    |       |  |    |      |    |      |    |  |      |    |
-|    |       |  | X  +------+ Y  +------+ Z  |  |      |    |
-|    |       |  |    |      |    |      |    |  |      |    |
-|    |       |  \----/      \----/      \----/  |      |    |
-|    |       |                                  |      |    |
-\----/       \----------------------------------/      \----/
+/-----------------------StateMachine--------------------------------\
+|                                                                   |
+|  /----\       /-----------StateMachine------------\      /----\   |
+|  |A   |       |B                                  |      |C   |   |
+|  |    +------>+   /----\      /----\      /----\  +----->+    |   |
+|  |    |       |   |X   |      |Y   |      |Z   |  |      |    |   |
+|  |    |       |   |    +----->+    +----->+    |  |      |    |   |
+|  |    |       |   |    |      |    |      |    |  |      |    |   |
+|  |    |       |   \----/      \----/      \----/  |      |    |   |
+|  |    |       |                                   |      |    |   |
+|  \----/       \-----------------------------------/      \----/   |
+|                                                                   |
+\-------------------------------------------------------------------/
 */
 
 namespace {
@@ -24,22 +28,11 @@ struct StateX { StateX(ostringstream& oss) : oss_(oss) { oss_ << "StateX ctor. "
 struct StateY { StateY(ostringstream& oss) : oss_(oss) { oss_ << "StateY ctor. "; } ~StateY() { oss_ << "StateY dtor. "; } ostringstream& oss_; };
 struct StateZ { StateZ(ostringstream& oss) : oss_(oss) { oss_ << "StateZ ctor. "; } ~StateZ() { oss_ << "StateZ dtor. "; } ostringstream& oss_; };
 
-template<typename E>
-class Hierarchy {
-public:
-	Hierarchy(StateMachine<E>& par, function<bool(E)> f) : par_(par)
-	{
-		par_.injectEx_ = f;
-	}
-	~Hierarchy() { par_.injectEx_ = nullptr; }
-	StateMachine<E>& par_;
-};
 
-class StateB : public StateMachine<string>, Hierarchy<string> {
+class StateB : public Hierarchical<StateMachine<string>> {
 public:
-	StateB(ostringstream& oss, StateMachine<string>& par) :
-		StateMachine(new StateX(oss)),
-		Hierarchy(par, [this](string ev){if (inject(ev)) return true; return par_.injectIn(ev);}),
+	StateB(ostringstream& oss, Hierarchical<StateMachine<string>>* parent) :
+		Hierarchical(new StateX(oss), parent),
 		oss_(oss)
 	{
 		oss_ << "StateB ctor. ";
@@ -49,12 +42,13 @@ public:
 	ostringstream& oss_;
 };
 
-class Hierarchical : public StateMachine<string> {
+
+class MyHierarchical : public Hierarchical<StateMachine<string>> {
 public:
-	Hierarchical(ostringstream& oss) : StateMachine(new StateA(oss))
+	MyHierarchical(ostringstream& oss) : Hierarchical(new StateA(oss))
 	{
 		addEvent<StateA>("AtoB", [this](StateA* from, string) {
-			StateB* to = new StateB(from->oss_, *this);
+			StateB* to = new StateB(from->oss_, this);
 			delete from;
 			return new StateHolder<StateB>(to);
 		});
@@ -70,11 +64,11 @@ string getLog(ostringstream& oss)
 	return ret;
 }
 
-TEST(Hierarchical, simple)
+TEST(MyHierarchical, simple)
 {
 	ostringstream oss;
 	{
-		Hierarchical hierarchical(oss);
+		MyHierarchical hierarchical(oss);
 		EXPECT_EQ("StateA ctor. ", getLog(oss));
 		EXPECT_TRUE(hierarchical.inject("AtoB"));
 		EXPECT_EQ("StateX ctor. StateB ctor. StateA dtor. ", getLog(oss));
@@ -84,11 +78,11 @@ TEST(Hierarchical, simple)
 	EXPECT_EQ("StateB dtor. StateY dtor. ", getLog(oss));
 }
 
-TEST(Hierarchical, simple2)
+TEST(MyHierarchical, simple2)
 {
 	ostringstream oss;
 	{
-		Hierarchical hierarchical(oss);
+		MyHierarchical hierarchical(oss);
 		EXPECT_EQ("StateA ctor. ", getLog(oss));
 		EXPECT_TRUE(hierarchical.inject("AtoB"));
 		EXPECT_EQ("StateX ctor. StateB ctor. StateA dtor. ", getLog(oss));
