@@ -29,10 +29,29 @@ struct StateY { StateY(ostringstream& oss) : oss_(oss) { oss_ << "StateY ctor. "
 struct StateZ { StateZ(ostringstream& oss) : oss_(oss) { oss_ << "StateZ ctor. "; } ~StateZ() { oss_ << "StateZ dtor. "; } ostringstream& oss_; };
 
 
+struct HierarchyPolicy
+{
+	static bool injectFunc(Hierarchical<StateMachine<string>>* self, string ev)
+	{
+		 if (self->child())
+			 return self->child()->inject(ev);
+		 return backFunc(self, ev);
+	}
+private:
+	static bool backFunc(Hierarchical<StateMachine<string>>* self, string ev)
+	{
+		if (self->StateMachine<string>::inject(ev))
+			return true;
+		if (self->parent())
+			return backFunc(self->parent(), ev);
+		return false; 
+	}
+};
+
 class StateB : public Hierarchical<StateMachine<string>> {
 public:
 	StateB(ostringstream& oss, Hierarchical<StateMachine<string>>* parent) :
-		Hierarchical(new StateX(oss), parent),
+		Hierarchical(new StateX(oss), HierarchyPolicy::injectFunc, parent),
 		oss_(oss)
 	{
 		oss_ << "StateB ctor. ";
@@ -45,7 +64,7 @@ public:
 
 class MyHierarchical : public Hierarchical<StateMachine<string>> {
 public:
-	MyHierarchical(ostringstream& oss) : Hierarchical(new StateA(oss))
+	MyHierarchical(ostringstream& oss) : Hierarchical(new StateA(oss), HierarchyPolicy::injectFunc)
 	{
 		addEvent<StateA>("AtoB", [this](StateA* from, string) {
 			StateB* to = new StateB(from->oss_, this);

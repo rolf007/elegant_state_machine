@@ -8,13 +8,16 @@ template<typename M>
 class Hierarchical : public M
 {
 public:
+	using InjectFunc = std::function<bool(Hierarchical*, typename M::EventType)>;
 	template<typename S>
-	Hierarchical(S* initState, Hierarchical<M>* parent = nullptr) : M(initState), parent_(parent), child_(nullptr) { if (parent_) parent_->child_ = this; }
+	Hierarchical(S* initState, InjectFunc injectFunc, Hierarchical* parent = nullptr) : M(initState), parent_(parent), child_(nullptr), injectFunc_(injectFunc) { if (parent_) parent_->child_ = this; }
 	~Hierarchical() { if (parent_) parent_->child_ = nullptr; }
-	bool inject(typename M::EventType ev) { if (child_) return child_->inject(ev); return injectBack(ev); }
+	bool inject(typename M::EventType ev) { return injectFunc_(this, ev); }
+	Hierarchical* parent() const { return parent_; }
+	Hierarchical* child() const { return child_; }
 private:
-	bool injectBack(typename M::EventType ev) { if (M::inject(ev)) return true; if (parent_) return parent_->injectBack(ev); return false; }
-	Hierarchical<M>* parent_, * child_;
+	Hierarchical* parent_, * child_;
+	InjectFunc injectFunc_;
 };
 
 template<typename E>
