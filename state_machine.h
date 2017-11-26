@@ -41,20 +41,20 @@ public:
 				return nullptr;
 			return ittr2->second->newIt(this, ev);
 		}
-		StateHolderBase* handleEvent(E ev, std::function<StateHolderBase*(S*, E)> func)
+		StateHolderBase* handleEvent(E ev, std::function<StateHolderBase*(std::unique_ptr<S>, E)> func)
 		{
-			return func(state_.release(), ev);
+			return func(move(state_), ev);
 		}
 	};
 private:
 	template<typename FROM>
 	struct Transition : public TransitionBase {
-		Transition(std::function<StateHolderBase*(FROM*, E)> func) : func_(func) {}
+		Transition(std::function<StateHolderBase*(std::unique_ptr<FROM>, E)> func) : func_(func) {}
 		StateHolderBase* newIt(StateHolderBase* from, E ev) override
 		{
 			return dynamic_cast<StateHolder<FROM>*>(from)->handleEvent(ev, func_);
 		};
-		std::function<StateHolderBase*(FROM*, E)> func_;
+		std::function<StateHolderBase*(std::unique_ptr<FROM>, E)> func_;
 	};
 public:
 	template<typename S>
@@ -69,7 +69,7 @@ public:
 		return false;
 	}
 	template<typename FROM>
-	void addEvent(E ev, std::function<StateHolderBase*(FROM*, E)> func)
+	void addEvent(E ev, std::function<StateHolderBase*(std::unique_ptr<FROM>, E)> func)
 	{
 		transitions_[std::make_pair(typeid(FROM).hash_code(), ev)] = std::make_unique<Transition<FROM>>(func);
 	}

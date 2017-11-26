@@ -15,18 +15,17 @@ class StateC { public: StateC(ostringstream& oss) : oss_(oss) { oss_ << "StateC 
 
 class MyStateMachine : public StateMachine<Events> {
 	template<typename FROM, typename TO>
-	static StateHolderBase* dcTransition(FROM* from, Events ev)
+	static StateHolderBase* dcTransition(unique_ptr<FROM> from, Events ev)
 	{
 		ostringstream& oss = from->oss_;
-		delete from;
+		from.reset();
 		return new StateHolder<TO>(new TO(oss));
 	}
 
 	template<typename FROM, typename TO>
-	static StateHolderBase* cdTransition(FROM* from, Events ev)
+	static StateHolderBase* cdTransition(unique_ptr<FROM> from, Events ev)
 	{
 		TO* to = new TO(from->oss_);
-		delete from;
 		return new StateHolder<TO>(to);
 	}
 

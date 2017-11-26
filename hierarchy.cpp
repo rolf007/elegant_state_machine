@@ -50,12 +50,12 @@ private:
 
 class StateB : public Hierarchical<StateMachine<string>> {
 public:
-	StateB(ostringstream& oss, Hierarchical<StateMachine<string>>* parent) :
+	StateB(ostringstream& oss, Hierarchical* parent) :
 		Hierarchical(new StateX(oss), HierarchyPolicy::injectFunc, parent),
 		oss_(oss)
 	{
 		oss_ << "StateB ctor. ";
-		addEvent<StateX>("XtoY", [](StateX* from, string) { StateY* to = new StateY(from->oss_); delete from; return new StateHolder<StateY>(to); });
+		addEvent<StateX>("XtoY", [](unique_ptr<StateX> from, string) { StateY* to = new StateY(from->oss_); return new StateHolder<StateY>(to); });
 	}
 	~StateB() { oss_ << "StateB dtor. "; }
 	ostringstream& oss_;
@@ -66,12 +66,11 @@ class MyHierarchical : public Hierarchical<StateMachine<string>> {
 public:
 	MyHierarchical(ostringstream& oss) : Hierarchical(new StateA(oss), HierarchyPolicy::injectFunc)
 	{
-		addEvent<StateA>("AtoB", [this](StateA* from, string) {
+		addEvent<StateA>("AtoB", [this](unique_ptr<StateA> from, string) {
 			StateB* to = new StateB(from->oss_, this);
-			delete from;
 			return new StateHolder<StateB>(to);
 		});
-		addEvent<StateB>("BtoC", [](StateB* from, string) { StateC* to = new StateC(from->oss_); delete from; return new StateHolder<StateC>(to); });
+		addEvent<StateB>("BtoC", [](unique_ptr<StateB> from, string) { StateC* to = new StateC(from->oss_); return new StateHolder<StateC>(to); });
 	}
 };
 
