@@ -3,28 +3,29 @@
 #include <map>
 #include <typeinfo>
 #include <memory>
+#include <iostream>
 
 template<typename M>
 class Hierarchical : public M
 {
 public:
-	using InjectFunc = std::function<bool(Hierarchical*, typename M::EventType)>;
+	using Policy = std::function<bool(Hierarchical*, typename M::EventType)>;
 	template<typename S>
-	Hierarchical(S* initState, InjectFunc injectFunc, Hierarchical* parent = nullptr) : M(initState), parent_(parent), child_(nullptr), injectFunc_(injectFunc) { if (parent_) parent_->child_ = this; }
+	Hierarchical(S* initState, Policy policy, Hierarchical* parent = nullptr) : M(initState), parent_(parent), child_(nullptr), policy_(policy) { if (parent_) parent_->child_ = this; }
 	~Hierarchical() { if (parent_) parent_->child_ = nullptr; }
-	bool inject(typename M::EventType ev) { return injectFunc_(this, ev); }
+	bool inject(typename M::EventType ev) { std::cout << "inject:" << (void*)this << std::endl; if (child_) return child_->inject(ev); std::cout << "no child_" << std::endl; return policy_(this, ev); }
+	bool injectPolicy(typename M::EventType ev) { return policy_(this, ev); }
 	Hierarchical* parent() const { return parent_; }
-	Hierarchical* child() const { return child_; }
 private:
 	Hierarchical* parent_, * child_;
-	InjectFunc injectFunc_;
+	Policy policy_;
 };
 
-template<typename E>
+template<typename E, typename B = void>
 class StateMachine {
 	struct TransitionBase;
 	using Transitions = std::map<std::pair<size_t, E>, std::unique_ptr<TransitionBase>>;
-	class StateHolderBase { public: virtual ~StateHolderBase(){} virtual StateHolderBase* inject2(E ev, const Transitions& transitions) = 0; };
+	class StateHolderBase { public: virtual ~StateHolderBase(){} virtual StateHolderBase* inject2(E ev, const Transitions& transitions) = 0; virtual B* getState() const = 0; };
 	struct TransitionBase { virtual StateHolderBase* newIt(StateHolderBase*, E) = 0;};
 public:
 	using EventType = E;
@@ -45,6 +46,7 @@ public:
 		{
 			return func(move(state_), ev);
 		}
+		virtual B* getState() const override { return static_cast<B*>(state_.get()); }
 	};
 private:
 	template<typename FROM>
@@ -72,6 +74,10 @@ public:
 	void addEvent(E ev, std::function<StateHolderBase*(std::unique_ptr<FROM>, E)> func)
 	{
 		transitions_[std::make_pair(typeid(FROM).hash_code(), ev)] = std::make_unique<Transition<FROM>>(func);
+	}
+	B* getState() const
+	{
+		return stateHolder_->getState();
 	}
 private:
 	std::unique_ptr<StateHolderBase> stateHolder_;
