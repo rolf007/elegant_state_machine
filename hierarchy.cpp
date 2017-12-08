@@ -33,8 +33,7 @@ struct StateZ { StateZ(ostringstream& oss) : oss_(oss) { oss_ << "StateZ ctor. "
 template<typename E, typename B = void>
 bool breadthFirstPolicy(Hierarchical<StateMachine<E, B>>* self, E ev)
 {
-	cout << "executing breadthFirstPolicy!" << endl;
-	if (self->StateMachine<E, B>::inject(ev))
+	if (self->injectMachine(ev))
 		return true;
 	if (self->parent())
 		return self->parent()->injectPolicy(ev);
@@ -44,19 +43,12 @@ bool breadthFirstPolicy(Hierarchical<StateMachine<E, B>>* self, E ev)
 template<typename E, typename B = void>
 bool depthFirstPolicy(Hierarchical<StateMachine<E, B>>* self, E ev)
 {
-	cout << "executing depthFirstPolicy!" << endl;
 	if (self->parent())
 	{
-		cout << "Rolf0" << endl;
 		if (self->parent()->injectPolicy(ev))
-		{
-		cout << "Rolf1" << endl;
 			return true;
-		}
 	}
-	cout << "typename:" << typeid(self).name() << endl;
-	cout << "Rolf2" << endl;
-	return self->StateMachine<E, B>::inject(ev);
+	return self->injectMachine(ev);
 }
 
 class StateB : public Hierarchical<StateMachine<string>> {
@@ -149,7 +141,6 @@ public:
 	StA(Hierarchical* parent, function<bool(Hierarchical*, int)> policy) :
 		Hierarchical(new StX, policy, parent)
 	{
-		cout << "StA::ctor" << (void*)this << ", par = " << parent << endl;
 		addEvent<StX>(1, [this](unique_ptr<StX> from, int) { return new StateHolder<StY>(new StY); });
 	}
 	string getStr() const { return getState()->getStr();}
@@ -160,7 +151,6 @@ class MyHierarchical2 : public Hierarchical<StateMachine<int, BaseState>> {
 public:
 	MyHierarchical2(function<bool(Hierarchical*, int)> policy) : Hierarchical(new StA(this, policy), policy)
 	{
-		cout << "MyHierarchical2::ctor" << (void*)this << endl;
 		addEvent<StA>(1, [this](unique_ptr<StA> from, int) { return new StateHolder<StB>(new StB); });
 	}
 	string getStr() const { return getState()->getStr();}
@@ -184,43 +174,58 @@ TEST(MyHierarchical, breadthFirstPolicy)
 
 struct I {};
 struct SM { SM(I* i){} void foo() { cout << "SM::foo" << endl; } };
+struct H;
 struct H
 {
-	H(H* parent = nullptr) : parent_(parent) { if (parent_) parent_->child_.insert(this); }
-	~H() { if (parent_) parent_->child_.erase(this); }
+	static map<H*, set<H*>> child;
+	H(H* parent = nullptr) : parent_(parent) { if (parent_) child[parent_].insert(this); }
+	~H() { if (parent_) child[parent_].erase(this); }
 	H* parent_;
-	set<H*> child_;
 	void dump() {
 		cout << "this = " << (void*)this << endl;
-		for (H* c: child_)
+		for (H* c: child[this])
 			cout << "child = " << (void*)c << endl;
 		cout << "parent = " << (void*)parent_ << endl;
 	}
 	void foo() { cout << "H::foo" << endl; }
 };
+map<H*, set<H*>> H::child;
 
-template<typename IS>
+
+
 struct HSM : H,SM {
-	HSM(H* parent, function<IS*()> f) : H(parent), SM(f()) {}
-	
+	HSM(H* parent, I* f) : H(parent), SM(f) { }
 };
 
-struct HChild : public HSM<I>, I {
-	HChild(H* parent) : HSM(parent, [](){ return new I;}) { }
+struct HChild : public HSM, I {
+	HChild(H* parent) : HSM(parent, new I) { }
 };
 
 
-struct HPar : public HSM<I> {
-	HPar() : HSM(nullptr, [this](){return new HChild(this);}) { }
+struct HPar : public HSM {
+	HPar() : HSM(nullptr, new HChild(this)) {  }
 };
 
 TEST(teste, tsets)
 {
 	HPar par;
-	//par.foo();
-	par.dump();
-	for (H* c: par.child_)
-		c->dump();
+	//par.dump();
+	//for (H* c: par.child_)
+	//	c->dump();
+	EXPECT_EQ(H::child[&par].size(), 1);
+	H* child = *H::child[&par].begin();
+	EXPECT_EQ(par.parent_, nullptr);
+	EXPECT_EQ(child->parent_, &par);
+	EXPECT_EQ(H::child[child].size(), 0);
+
+	HChild* child2 = new HChild(&par);
+	delete child;
+
+	EXPECT_EQ(H::child[&par].size(), 1);
+	EXPECT_EQ(child2, *H::child[&par].begin());
+	EXPECT_EQ(par.parent_, nullptr);
+	EXPECT_EQ(child2->parent_, &par);
+	EXPECT_EQ(H::child[child2].size(), 0);
 }
 
 }
