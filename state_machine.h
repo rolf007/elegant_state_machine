@@ -10,22 +10,14 @@ template<typename M>
 class Hierarchical : public M
 {
 public:
-	static std::map<Hierarchical*, std::set<Hierarchical*>> child;
 	using Policy = std::function<bool(Hierarchical*, typename M::EventType)>;
 	template<typename S>
-	Hierarchical(S* initState, Policy policy, Hierarchical* parent = nullptr) : M(initState), parent_(parent), policy_(policy) { if (parent_) child[parent_].insert(this); }
-	~Hierarchical() { if (parent_) child[parent_].erase(this); }
-	bool inject(typename M::EventType ev) { if (child[this].size() == 1) return (*child[this].begin())->inject(ev); return policy_(this, ev); }
-	bool injectPolicy(typename M::EventType ev) { return policy_(this, ev); }
+	Hierarchical(S* initState, Policy policy) : M(initState), policy_(policy) {  }
+	bool inject(typename M::EventType ev) { return policy_(this, ev); }
 	bool injectMachine(typename M::EventType ev) { return M::inject(ev); }
-	Hierarchical* parent() const { return parent_; }
 private:
-	Hierarchical* parent_;
 	Policy policy_;
 };
-
-template<typename M>
-std::map<Hierarchical<M>*, std::set<Hierarchical<M>*>> Hierarchical<M>::child;
 
 template<typename E, typename B = void>
 class StateMachine {
