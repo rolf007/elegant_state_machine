@@ -9,20 +9,20 @@ using namespace std;
 
 namespace {
 
-template<typename E, typename B = void>
-bool breadthFirstPolicy(Hierarchical<StateMachine<E, B>>* self, E ev)
+template<typename S, typename M, typename E>
+bool breadthFirstPolicy(S* state, M* machine, E ev)
 {
-	if (self->injectMachine(ev))
+	if (machine->inject(ev))
 		return true;
-	return self->getState()->inject(atoi(ev.c_str()));
+	return state->inject(atoi(ev.c_str()));
 }
 
-template<typename E, typename B = void>
-bool depthFirstPolicy(Hierarchical<StateMachine<E, B>>* self, E ev)
+template<typename S, typename M, typename E>
+bool depthFirstPolicy(S* state, M* machine, E ev)
 {
-	if (self->getState()->inject(atoi(ev.c_str())))
+	if (state->inject(atoi(ev.c_str())))
 		return true;
-	return self->injectMachine(ev);
+	return machine->inject(ev);
 }
 
 /*
@@ -41,35 +41,36 @@ bool depthFirstPolicy(Hierarchical<StateMachine<E, B>>* self, E ev)
 \------------------------------------------/
 */
 
-struct BaseStateABC { virtual string getStr() const = 0; virtual bool inject(int) { return false; } };
-struct BaseStateXYZ { virtual string getStr() const = 0; };
-struct StB : BaseStateABC { string getStr() const { return "B";} };
-struct StX : BaseStateXYZ { string getStr() const { return "X";} };
-struct StY : BaseStateXYZ { string getStr() const { return "Y";} };
+struct BaseState { virtual string getStr() const = 0; };
+struct StB : BaseState { string getStr() const { return "B";} };
+struct StX : BaseState { string getStr() const { return "X";} };
+struct StY : BaseState { string getStr() const { return "Y";} };
 
-class StA : public StateMachine<int, BaseStateXYZ>, public BaseStateABC {
+class StA : public StateMachine<int, BaseState>, public BaseState{
 public:
 	StA() : StateMachine(new StX)
 	{
 		addEvent<StX>(1, [this](unique_ptr<StX> from, int) { return new StateHolder<StY>(new StY); });
 	}
 	string getStr() const { return getState()->getStr();}
-	virtual bool inject(int ev) override { return StateMachine::inject(ev); }
 };
 
-
-class MyHierarchical2 : public Hierarchical<StateMachine<string, BaseStateABC>> {
+class MyHierarchical2 : public Hierarchical<StateMachine<string, BaseState>> {
 public:
-	MyHierarchical2(function<bool(Hierarchical*, string)>policy) : Hierarchical(new StA, policy)
+	MyHierarchical2(bool depthFirst) : Hierarchical(new StA)
 	{
-		addEvent<StA>("1", [this](unique_ptr<StA> from, string) { return new StateHolder<StB>(new StB); });
+		addEvent<StA>("1", [](unique_ptr<StA> from, string) { return new StateHolder<StB>(new StB); });
+		if (depthFirst)
+			addPolicy<StA>(depthFirstPolicy<StA, StateMachine<string, BaseState>, string>);
+		else
+			addPolicy<StA>(breadthFirstPolicy<StA, StateMachine<string, BaseState>, string>);
 	}
 	string getStr() const { return getState()->getStr();}
 };
 
 TEST(MyHierarchical, different_event_types_depthFirst)
 {
-	MyHierarchical2 hierarchical(depthFirstPolicy<string, BaseStateABC>);
+	MyHierarchical2 hierarchical(true);
 	EXPECT_EQ("X", hierarchical.getStr());
 	EXPECT_TRUE(hierarchical.inject("1"));
 	EXPECT_EQ("Y", hierarchical.getStr());
@@ -77,7 +78,7 @@ TEST(MyHierarchical, different_event_types_depthFirst)
 
 TEST(MyHierarchical, different_event_types_breadthFirst)
 {
-	MyHierarchical2 hierarchical(breadthFirstPolicy<string, BaseStateABC>);
+	MyHierarchical2 hierarchical(false);
 	EXPECT_EQ("X", hierarchical.getStr());
 	EXPECT_TRUE(hierarchical.inject("1"));
 	EXPECT_EQ("B", hierarchical.getStr());

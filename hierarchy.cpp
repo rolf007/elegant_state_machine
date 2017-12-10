@@ -24,6 +24,15 @@ using namespace std;
 
 namespace {
 
+template<typename S, typename M, typename E>
+bool breadthFirstPolicy(S* state, M* machine, E ev)
+{
+	if (machine->inject(ev))
+		return true;
+	return state->inject(ev) ;
+}
+
+
 struct BaseState1 { virtual bool inject(string) { return false; } };
 
 struct StateA :public BaseState1 { StateA(ostringstream& oss) : oss_(oss) { oss_ << "StateA ctor. "; } ~StateA() { oss_ << "StateA dtor. "; } ostringstream& oss_; };
@@ -31,23 +40,6 @@ struct StateC :public BaseState1 { StateC(ostringstream& oss) : oss_(oss) { oss_
 struct StateX :public BaseState1 { StateX(ostringstream& oss) : oss_(oss) { oss_ << "StateX ctor. "; } ~StateX() { oss_ << "StateX dtor. "; } ostringstream& oss_; };
 struct StateY :public BaseState1 { StateY(ostringstream& oss) : oss_(oss) { oss_ << "StateY ctor. "; } ~StateY() { oss_ << "StateY dtor. "; } ostringstream& oss_; };
 struct StateZ :public BaseState1 { StateZ(ostringstream& oss) : oss_(oss) { oss_ << "StateZ ctor. "; } ~StateZ() { oss_ << "StateZ dtor. "; } ostringstream& oss_; };
-
-
-template<typename E, typename B = void>
-bool breadthFirstPolicy(Hierarchical<StateMachine<E, B>>* self, E ev)
-{
-	if (self->injectMachine(ev))
-		return true;
-	return self->getState()->inject(ev);
-}
-
-template<typename E, typename B = void>
-bool depthFirstPolicy(Hierarchical<StateMachine<E, B>>* self, E ev)
-{
-	if (self->getState()->inject(ev))
-		return true;
-	return self->injectMachine(ev);
-}
 
 class StateB : public StateMachine<string, BaseState1>, public BaseState1 {
 public:
@@ -66,12 +58,13 @@ public:
 
 class MyHierarchical : public Hierarchical<StateMachine<string, BaseState1>> {
 public:
-	MyHierarchical(ostringstream& oss) : Hierarchical(new StateA(oss), breadthFirstPolicy<string, BaseState1>)
+	MyHierarchical(ostringstream& oss) : Hierarchical(new StateA(oss))
 	{
 		addEvent<StateA>("AtoB", [this](unique_ptr<StateA> from, string) {
 			StateB* to = new StateB(from->oss_);
 			return new StateHolder<StateB>(to);
 		});
+		addPolicy<StateB>(breadthFirstPolicy<StateB, StateMachine<string, BaseState1>, string>);
 		addEvent<StateB>("BtoC", [](unique_ptr<StateB> from, string) { StateC* to = new StateC(from->oss_); return new StateHolder<StateC>(to); });
 	}
 };
@@ -137,8 +130,7 @@ struct StY : BaseState { string getStr() const { return "Y";} };
 
 class StA : public Hierarchical<StateMachine<int, BaseState>>, public BaseState {
 public:
-	StA(function<bool(Hierarchical*, int)> policy) :
-		Hierarchical(new StX, policy)
+	StA() : Hierarchical(new StX)
 	{
 		addEvent<StX>(1, [this](unique_ptr<StX> from, int) { return new StateHolder<StY>(new StY); });
 	}
@@ -146,19 +138,30 @@ public:
 	virtual bool inject(int ev) override { return StateMachine::inject(ev); }
 };
 
+template<typename S, typename M, typename E>
+bool depthFirstPolicy(S* state, M* machine, E ev)
+{
+	if (state->inject(ev))
+		return true;
+	return machine->inject(ev);
+}
 
 class MyHierarchical2 : public Hierarchical<StateMachine<int, BaseState>> {
 public:
-	MyHierarchical2(function<bool(Hierarchical*, int)> policy) : Hierarchical(new StA(policy), policy)
+	MyHierarchical2(bool depthFirst) : Hierarchical(new StA())
 	{
-		addEvent<StA>(1, [this](unique_ptr<StA> from, int) { return new StateHolder<StB>(new StB); });
+		addEvent<StA>(1, [](unique_ptr<StA> from, int) { return new StateHolder<StB>(new StB); });
+		if (depthFirst)
+			addPolicy<StA>(depthFirstPolicy<StA, StateMachine<int, BaseState>, int>);
+		else
+			addPolicy<StA>(breadthFirstPolicy<StA, StateMachine<int, BaseState>, int>);
 	}
 	string getStr() const { return getState()->getStr();}
 };
 
-TEST(MyHierarchical, depthFirstPolicy)
+TEST(MyHierarchical, testDepthFirstPolicy)
 {
-	MyHierarchical2 hierarchical(depthFirstPolicy<int, BaseState>);
+	MyHierarchical2 hierarchical(true);
 	EXPECT_EQ("X", hierarchical.getStr());
 	EXPECT_TRUE(hierarchical.inject(1));
 	EXPECT_EQ("Y", hierarchical.getStr());
@@ -166,7 +169,7 @@ TEST(MyHierarchical, depthFirstPolicy)
 
 TEST(MyHierarchical, breadthFirstPolicy)
 {
-	MyHierarchical2 hierarchical(breadthFirstPolicy<int, BaseState>);
+	MyHierarchical2 hierarchical(false);
 	EXPECT_EQ("X", hierarchical.getStr());
 	EXPECT_TRUE(hierarchical.inject(1));
 	EXPECT_EQ("B", hierarchical.getStr());
