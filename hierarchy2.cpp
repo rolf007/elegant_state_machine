@@ -84,4 +84,40 @@ TEST(MyHierarchical, different_event_types_breadthFirst)
 	EXPECT_EQ("B", hierarchical.getStr());
 }
 
+template<typename B>
+struct Space {
+	struct HolderBase {
+		virtual B* cast() = 0;
+	};
+
+	template<typename S>
+	struct Holder : HolderBase {
+		Holder(S* s) : s_(s) {}
+		virtual B* cast() { return s_; }
+		S* s_;
+	};
+	template<typename S>
+	void push_back(S* s) {
+		h_.push_back(new Holder<S>(s));
+	}
+	vector<HolderBase*> h_;
+
+	B* cast(int i) {
+		return h_[i]->cast();
+	}
+};
+
+struct StateBase {};
+struct State : StateBase {};
+struct OtherState {};
+
+TEST(holder, holder)
+{
+	Space<StateBase> space;
+	space.push_back(new State);
+	//space.push_back(new OtherState);
+	EXPECT_TRUE(space.cast(0));
+	//EXPECT_FALSE(space.cast(1));
+}
+
 }
