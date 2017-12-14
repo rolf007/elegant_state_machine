@@ -15,22 +15,23 @@ class StateC { public: StateC(ostringstream& oss) : oss_(oss) { oss_ << "StateC 
 
 class MyStateMachine : public StateMachine<Events> {
 	template<typename FROM, typename TO>
-	static StateHolderBase* dcTransition(unique_ptr<FROM> from, Events ev)
+	static StateHolderBase* dcTransition(unique_ptr<StateHolder<FROM>> from, Events ev)
 	{
+		// cd: first destroy old state, then construct new state
 		ostringstream& oss = from->oss_;
 		from.reset();
-		return new StateHolder<TO>(new TO(oss));
+		return new StateHolder<TO>(oss);
 	}
 
 	template<typename FROM, typename TO>
-	static StateHolderBase* cdTransition(unique_ptr<FROM> from, Events ev)
+	static StateHolderBase* cdTransition(unique_ptr<StateHolder<FROM>> from, Events ev)
 	{
-		TO* to = new TO(from->oss_);
-		return new StateHolder<TO>(to);
+		// cd: first construct new state, then destroy old state
+		return new StateHolder<TO>(from->oss_);
 	}
 
 public:
-	MyStateMachine(ostringstream& oss) : StateMachine(new StateA(oss))
+	MyStateMachine(ostringstream& oss) : StateMachine(new StateHolder<StateA>(oss))
 	{
 		addEvent<StateA>(Events::Event0, dcTransition<StateA, StateB>);
 		addEvent<StateA>(Events::Event1, dcTransition<StateA, StateC>);

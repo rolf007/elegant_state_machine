@@ -1,8 +1,7 @@
 #include "state_machine.h"
+#include <gtest/gtest.h>
 #include <iostream>
 #include <ostream>
-#include <gtest/gtest.h>
-#include <set>
 
 using namespace std;
 
@@ -24,12 +23,20 @@ using namespace std;
 
 namespace {
 
-template<typename S, typename M, typename E>
-bool breadthFirstPolicy(S* state, M* machine, E ev)
+template<typename S, typename M>
+bool breadthFirstPolicy(S* state, M* machine, typename M::EventType ev)
 {
 	if (machine->inject(ev))
 		return true;
 	return state->inject(ev) ;
+}
+
+template<typename S, typename M>
+bool depthFirstPolicy(S* state, M* machine, typename M::EventType ev)
+{
+	if (state->inject(ev))
+		return true;
+	return machine->inject(ev);
 }
 
 
@@ -41,14 +48,14 @@ struct StateX :public BaseState1 { StateX(ostringstream& oss) : oss_(oss) { oss_
 struct StateY :public BaseState1 { StateY(ostringstream& oss) : oss_(oss) { oss_ << "StateY ctor. "; } ~StateY() { oss_ << "StateY dtor. "; } ostringstream& oss_; };
 struct StateZ :public BaseState1 { StateZ(ostringstream& oss) : oss_(oss) { oss_ << "StateZ ctor. "; } ~StateZ() { oss_ << "StateZ dtor. "; } ostringstream& oss_; };
 
-class StateB : public StateMachine<string, BaseState1>, public BaseState1 {
+class StateB : public StateMachine<string>, public BaseState1 {
 public:
 	StateB(ostringstream& oss) :
-		StateMachine(new StateX(oss)),
+		StateMachine(new StateHolder<StateX>(oss)),
 		oss_(oss)
 	{
 		oss_ << "StateB ctor. ";
-		addEvent<StateX>("XtoY", [](unique_ptr<StateX> from, string) { StateY* to = new StateY(from->oss_); return new StateHolder<StateY>(to); });
+		addEvent<StateX>("XtoY", [](unique_ptr<StateHolder<StateX>> from, string) { return new StateHolder<StateY>(from->oss_); });
 	}
 	~StateB() { oss_ << "StateB dtor. "; }
 	ostringstream& oss_;
@@ -56,16 +63,15 @@ public:
 };
 
 
-class MyHierarchical : public Hierarchical<StateMachine<string, BaseState1>> {
+class MyHierarchical : public Hierarchical<StateMachine<string>> {
 public:
-	MyHierarchical(ostringstream& oss) : Hierarchical(new StateA(oss))
+	MyHierarchical(ostringstream& oss) : Hierarchical(new StateHolder<StateA>(oss))
 	{
-		addEvent<StateA>("AtoB", [this](unique_ptr<StateA> from, string) {
-			StateB* to = new StateB(from->oss_);
-			return new StateHolder<StateB>(to);
+		addEvent<StateA>("AtoB", [this](unique_ptr<StateHolder<StateA>> from, string) {
+			return new StateHolder<StateB>(from->oss_);
 		});
-		addPolicy<StateB>(breadthFirstPolicy<StateB, StateMachine<string, BaseState1>, string>);
-		addEvent<StateB>("BtoC", [](unique_ptr<StateB> from, string) { StateC* to = new StateC(from->oss_); return new StateHolder<StateC>(to); });
+		addPolicy<StateB>(breadthFirstPolicy<StateB, StateMachine<string>>);
+		addEvent<StateB>("BtoC", [](unique_ptr<StateHolder<StateB>> from, string) { return new StateHolder<StateC>(from->oss_); });
 	}
 };
 
@@ -128,35 +134,27 @@ struct StB : BaseState { string getStr() const { return "B";} };
 struct StX : BaseState { string getStr() const { return "X";} };
 struct StY : BaseState { string getStr() const { return "Y";} };
 
-class StA : public Hierarchical<StateMachine<int, BaseState>>, public BaseState {
+class StA : public Hierarchical<StateMachine<int>>, public BaseState {
 public:
-	StA() : Hierarchical(new StX)
+	StA() : Hierarchical(new StateHolder<StX>)
 	{
-		addEvent<StX>(1, [this](unique_ptr<StX> from, int) { return new StateHolder<StY>(new StY); });
+		addEvent<StX>(1, [this](unique_ptr<StateHolder<StX>> from, int) { return new StateHolder<StY>(); });
 	}
-	string getStr() const { return getState()->getStr();}
+	string getStr() const { return getState<BaseState>()->getStr();}
 	virtual bool inject(int ev) override { return StateMachine::inject(ev); }
 };
 
-template<typename S, typename M, typename E>
-bool depthFirstPolicy(S* state, M* machine, E ev)
-{
-	if (state->inject(ev))
-		return true;
-	return machine->inject(ev);
-}
-
-class MyHierarchical2 : public Hierarchical<StateMachine<int, BaseState>> {
+class MyHierarchical2 : public Hierarchical<StateMachine<int>> {
 public:
-	MyHierarchical2(bool depthFirst) : Hierarchical(new StA())
+	MyHierarchical2(bool depthFirst) : Hierarchical(new StateHolder<StA>)
 	{
-		addEvent<StA>(1, [](unique_ptr<StA> from, int) { return new StateHolder<StB>(new StB); });
+		addEvent<StA>(1, [](unique_ptr<StateHolder<StA>> from, int) { return new StateHolder<StB>(); });
 		if (depthFirst)
-			addPolicy<StA>(depthFirstPolicy<StA, StateMachine<int, BaseState>, int>);
+			addPolicy<StA>(depthFirstPolicy<StA, StateMachine<int>>);
 		else
-			addPolicy<StA>(breadthFirstPolicy<StA, StateMachine<int, BaseState>, int>);
+			addPolicy<StA>(breadthFirstPolicy<StA, StateMachine<int>>);
 	}
-	string getStr() const { return getState()->getStr();}
+	string getStr() const { return getState<BaseState>()->getStr();}
 };
 
 TEST(MyHierarchical, testDepthFirstPolicy)
@@ -167,7 +165,7 @@ TEST(MyHierarchical, testDepthFirstPolicy)
 	EXPECT_EQ("Y", hierarchical.getStr());
 }
 
-TEST(MyHierarchical, breadthFirstPolicy)
+TEST(MyHierarchical, testBreadthFirstPolicy)
 {
 	MyHierarchical2 hierarchical(false);
 	EXPECT_EQ("X", hierarchical.getStr());
