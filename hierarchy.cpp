@@ -40,7 +40,7 @@ bool depthFirstPolicy(S* state, M* machine, typename M::EventType ev)
 }
 
 
-struct BaseState1 { virtual bool inject(string) { return false; } };
+struct BaseState1 { };
 
 struct StateA :public BaseState1 { StateA(ostringstream& oss) : oss_(oss) { oss_ << "StateA ctor. "; } ~StateA() { oss_ << "StateA dtor. "; } ostringstream& oss_; };
 struct StateC :public BaseState1 { StateC(ostringstream& oss) : oss_(oss) { oss_ << "StateC ctor. "; } ~StateC() { oss_ << "StateC dtor. "; } ostringstream& oss_; };
@@ -51,27 +51,24 @@ struct StateZ :public BaseState1 { StateZ(ostringstream& oss) : oss_(oss) { oss_
 class StateB : public StateMachine<string>, public BaseState1 {
 public:
 	StateB(ostringstream& oss) :
-		StateMachine(new StateHolder<StateX>(oss)),
+		StateMachine(new State<StateX>(oss)),
 		oss_(oss)
 	{
 		oss_ << "StateB ctor. ";
-		addEvent<StateX>("XtoY", [](unique_ptr<StateHolder<StateX>> from, string) { return new StateHolder<StateY>(from->oss_); });
+		addEvent<StateX>("XtoY", [](unique_ptr<State<StateX>> from, string) { return new State<StateY>(from->oss_); });
 	}
 	~StateB() { oss_ << "StateB dtor. "; }
 	ostringstream& oss_;
-	virtual bool inject(string ev) override { return StateMachine::inject(ev); }
 };
 
 
 class MyHierarchical : public Hierarchical<StateMachine<string>> {
 public:
-	MyHierarchical(ostringstream& oss) : Hierarchical(new StateHolder<StateA>(oss))
+	MyHierarchical(ostringstream& oss) : Hierarchical(new State<StateA>(oss))
 	{
-		addEvent<StateA>("AtoB", [this](unique_ptr<StateHolder<StateA>> from, string) {
-			return new StateHolder<StateB>(from->oss_);
-		});
+		addEvent<StateA>("AtoB", [this](unique_ptr<State<StateA>> from, string) { return new State<StateB>(from->oss_); });
 		addPolicy<StateB>(breadthFirstPolicy<StateB, StateMachine<string>>);
-		addEvent<StateB>("BtoC", [](unique_ptr<StateHolder<StateB>> from, string) { return new StateHolder<StateC>(from->oss_); });
+		addEvent<StateB>("BtoC", [](unique_ptr<State<StateB>> from, string) { return new State<StateC>(from->oss_); });
 	}
 };
 
@@ -129,26 +126,25 @@ TEST(MyHierarchical, simple2)
 \------------------------------------------/
 */
 
-struct BaseState { virtual string getStr() const = 0; virtual bool inject(int) { return false; } };
+struct BaseState { virtual string getStr() const = 0; };
 struct StB : BaseState { string getStr() const { return "B";} };
 struct StX : BaseState { string getStr() const { return "X";} };
 struct StY : BaseState { string getStr() const { return "Y";} };
 
-class StA : public Hierarchical<StateMachine<int>>, public BaseState {
+class StA : public StateMachine<int>, public BaseState {
 public:
-	StA() : Hierarchical(new StateHolder<StX>)
+	StA() : StateMachine(new State<StX>)
 	{
-		addEvent<StX>(1, [this](unique_ptr<StateHolder<StX>> from, int) { return new StateHolder<StY>(); });
+		addEvent<StX>(1, [this](unique_ptr<State<StX>> from, int) { return new State<StY>(); });
 	}
 	string getStr() const { return getState<BaseState>()->getStr();}
-	virtual bool inject(int ev) override { return StateMachine::inject(ev); }
 };
 
 class MyHierarchical2 : public Hierarchical<StateMachine<int>> {
 public:
-	MyHierarchical2(bool depthFirst) : Hierarchical(new StateHolder<StA>)
+	MyHierarchical2(bool depthFirst) : Hierarchical(new State<StA>)
 	{
-		addEvent<StA>(1, [](unique_ptr<StateHolder<StA>> from, int) { return new StateHolder<StB>(); });
+		addEvent<StA>(1, [](unique_ptr<State<StA>> from, int) { return new State<StB>(); });
 		if (depthFirst)
 			addPolicy<StA>(depthFirstPolicy<StA, StateMachine<int>>);
 		else
@@ -171,62 +167,6 @@ TEST(MyHierarchical, testBreadthFirstPolicy)
 	EXPECT_EQ("X", hierarchical.getStr());
 	EXPECT_TRUE(hierarchical.inject(1));
 	EXPECT_EQ("B", hierarchical.getStr());
-}
-
-struct I {};
-struct SM { SM(I* i){} void foo() { cout << "SM::foo" << endl; } };
-struct H;
-struct H
-{
-	static map<H*, set<H*>> child;
-	H(H* parent = nullptr) : parent_(parent) { if (parent_) child[parent_].insert(this); }
-	~H() { if (parent_) child[parent_].erase(this); }
-	H* parent_;
-	void dump() {
-		cout << "this = " << (void*)this << endl;
-		for (H* c: child[this])
-			cout << "child = " << (void*)c << endl;
-		cout << "parent = " << (void*)parent_ << endl;
-	}
-	void foo() { cout << "H::foo" << endl; }
-};
-map<H*, set<H*>> H::child;
-
-
-
-struct HSM : H,SM {
-	HSM(H* parent, I* f) : H(parent), SM(f) { }
-};
-
-struct HChild : public HSM, I {
-	HChild(H* parent) : HSM(parent, new I) { }
-};
-
-
-struct HPar : public HSM {
-	HPar() : HSM(nullptr, new HChild(this)) {  }
-};
-
-TEST(teste, tsets)
-{
-	HPar par;
-	//par.dump();
-	//for (H* c: par.child_)
-	//	c->dump();
-	EXPECT_EQ(H::child[&par].size(), 1);
-	H* child = *H::child[&par].begin();
-	EXPECT_EQ(par.parent_, nullptr);
-	EXPECT_EQ(child->parent_, &par);
-	EXPECT_EQ(H::child[child].size(), 0);
-
-	HChild* child2 = new HChild(&par);
-	delete child;
-
-	EXPECT_EQ(H::child[&par].size(), 1);
-	EXPECT_EQ(child2, *H::child[&par].begin());
-	EXPECT_EQ(par.parent_, nullptr);
-	EXPECT_EQ(child2->parent_, &par);
-	EXPECT_EQ(H::child[child2].size(), 0);
 }
 
 }
